@@ -1,67 +1,35 @@
-import struct
-from pathlib import Path
+import csv
+from io_acv import saveACVFile, readACVFile, readACVFileRaw
 
-binary_file_empty = "empty-curve.acv"
-binary_file_full = "dotgain corrected test.acv"
-binary_file_5ch = "5channelcurve.acv"
+data = []
+rows_per_color = 15
+rows_per_color *= 2
 
-def read_ints(data, offset, count):
-    result = []
-    for i in range(count):
-        result.append(int.from_bytes(data[offset:offset+2], byteorder="big", signed=False))
-        offset = offset + 2
+with open("correctioncurve-80808080-rgb2.2.txt", "r") as file:
+    read = csv.reader(file, delimiter="\t", )
+    for row in read:
+        data.append(row)
 
-    return result
+color_data = []
+skip_data = [['Cyan:'], ['Magenta:'], ['Yellow:'], ['Black:']]
 
-def checkNullCurve(ints):
-    if ints == [2, 0]:
-        return True
-    else: 
-        return False
-
-def readACVFile(filepath):
-    with open(filepath, 'rb') as file:
-        data = Path(filepath).read_bytes()
-
-    data_length = len(data)
-    offset = 4 # skip version and curve count
-    data_array = []
-
-    while offset < data_length:
-        # we got curve data!
-        curve_point_count = read_ints(data, offset, 1)[0]
-        if curve_point_count != 0:
-            curve_data = read_ints(data, offset+2, curve_point_count*2)
-            data_array.append(curve_data)
-            offset = offset + ((curve_point_count * 2) + ((curve_point_count*2)+2) )
+for item in data:
+    try:
+        if item == []:
+            continue
+        elif item in skip_data:
             continue
         else:
-            offset = offset + 4
-    return data_array
+            color_data.append([item[0], item[1]])
+    except IndexError:
+        pass
 
-decoded_data = readACVFile(binary_file_full)
+CMYK_channel = [int(float(item)*2.55) for sublist in color_data for item in sublist]
+master_channel = [0, 0, 255, 255]
 
-def saveACVFile(filepath, curve_array):
-    curve_count = len(curve_array)
-    binary_data = []
-    header = []
+chunkified_data = [CMYK_channel[x:x+rows_per_color] for x in range(0, len(CMYK_channel), rows_per_color)]
+chunkified_data.insert(0, master_channel)
 
-    # construct header
-    header.append(b'\x00\x04') #version number  
-    header.append(struct.pack(">H", curve_count)) #curve count 
-    header = b"".join(header)
-    binary_data.append(header)
+saveACVFile("correctioncurve-80808080-rgb2.2.acv", chunkified_data)
 
-    # construct data
-    for curve in curve_array:
-        pair_count = int(len(curve)/2)
-        binary_data.append(struct.pack(">H", pair_count))
-        for integer in curve:
-            binary_data.append(struct.pack(">H", integer))
-
-    binary_data = b"".join(binary_data)
-
-    with open(filepath, 'wb') as file:
-        file.write(binary_data)
-
-saveACVFile("testoutput.acv", decoded_data)
+print(CMYK_channel)
